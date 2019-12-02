@@ -1,7 +1,12 @@
-Execute this solution with
+Execute the SML solution with
 
 ```
 sml solve.sml
 - solve "input";
-val it = 3364035 : int
+```
+
+or the awk solution with
+
+```
+awk solve.awk <input
 ```
