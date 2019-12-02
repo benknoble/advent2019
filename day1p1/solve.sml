@@ -1,24 +1,16 @@
-fun fuel mass = floor(mass / 3.0) - 2
+fun fuel mass = floor (mass / 3.0) - 2
 
-fun sum lst = foldl op+ 0 lst
+val sum = foldl op + 0
 
-fun read (file: TextIO.instream) =
+val total_fuel = sum o (map fuel)
+
+val read =
 let
-  val collect_ints = List.mapPartial Int.fromString
+  val collect_reals = List.mapPartial Real.fromString
   val tokenize = String.tokens Char.isSpace
-  val to_masses = collect_ints o tokenize
+  val to_masses = collect_reals o tokenize
 in
-  to_masses (TextIO.inputAll file)
+  to_masses o TextIO.inputAll
 end
 
-fun main () =
-let
-  val masses = map real (read TextIO.stdIn)
-  val fuels = map fuel masses
-  val total = sum fuels
-in
-  print ((Int.toString total) ^ "\n") ;
-  OS.Process.success
-end
-
-val _ = OS.Process.exit (main ())
+val solve = total_fuel o read o TextIO.openIn
