@@ -93,13 +93,13 @@ structure Intcode = struct
        | UNKNOWN u => raise UnknownOp (ip, u)
 
   (* main interface *)
-  fun compile (p : program) : process = (RUNNING, p, init)
+  fun load (p : program) : process = (RUNNING, p, init)
   fun run (s : state, m : memory, ip : addr) : result =
     case s of
          RUNNING => run (step (s, m, ip))
        | FINISHED => (m, ip)
 
-  val interpret : program -> result = run o compile
+  val interpret : program -> result = run o load
 
   val readProgram : TextIO.instream -> program =
   let
