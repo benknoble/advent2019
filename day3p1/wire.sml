@@ -137,7 +137,7 @@ structure Wires = struct
 
   fun toWire (p : Path.path) : wire =
     let fun toWire' (st, []) = Point.trace Point.origin st
-          | toWire' (st, acc::accs) = (Point.trace acc st) @ acc::accs
+          | toWire' (st, acc::accs) = (Point.trace acc st) @ accs
     in
       rev (foldl toWire' [] p)
     end
