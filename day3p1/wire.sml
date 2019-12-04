@@ -139,7 +139,7 @@ structure Wires = struct
     let fun toWire' (st, []) = Point.trace Point.origin st
           | toWire' (st, acc::accs) = (Point.trace acc st) @ acc::accs
     in
-      rev (foldl toWire' [Point.origin] p)
+      rev (foldl toWire' [] p)
     end
 
   (* for efficiency, this is implemented via an SML/NJ RedBlackSetFn
