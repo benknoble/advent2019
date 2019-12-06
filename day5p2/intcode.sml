@@ -71,6 +71,8 @@ signature DECODER = sig
 
   type unaryR
   type unaryW
+  type jmp
+  type tst
   type ternary
   val unaryRToRec : unaryR -> { addr : param
                               , newIp : addr
@@ -78,6 +80,19 @@ signature DECODER = sig
   val unaryWToRec : unaryW -> { addr : dest
                               , newIp : addr
                               }
+  val condJmp : jmp -> { cmp : elem -> bool
+                       , tst : param
+                       , jmpIp : param
+                       , defIp : addr
+                       }
+  val test : tst -> { cmp : elem -> elem -> bool
+                    , tstA : param
+                    , tstB : param
+                    , res : dest
+                    , ifT : elem
+                    , ifF : elem
+                    , newIp : addr
+                    }
   val ternaryToRec : ternary -> { srcA : param
                                 , srcB : param
                                 , dest : dest
@@ -88,6 +103,10 @@ signature DECODER = sig
                 | MULT of ternary
                 | INPUT of unaryW
                 | OUTPUT of unaryR
+                | JMP_T of jmp
+                | JMP_F of jmp
+                | TST_LT of tst
+                | TST_EQ of tst
                 | HALT
                 | UNKNOWN_OP of opcode
                 | UNKNOWN_MODE of opcode
@@ -190,20 +209,42 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
     addr : dest
     , newIp : addr
     }
+  type jmp = {
+    cmp : elem -> bool
+    , tst : param
+    , jmpIp : param
+    , defIp : addr
+    }
+  type tst = {
+    cmp : elem -> elem -> bool
+    , tstA : param
+    , tstB : param
+    , res : dest
+    , ifT : elem
+    , ifF : elem
+    , newIp : addr
+  }
   type ternary = {
     srcA : param
     , srcB : param
     , dest : dest
     , newIp : addr
     }
-  val unaryRToRec = fn u => u
-  val unaryWToRec = fn u => u
-  val ternaryToRec = fn t => t
+  val id = fn id => id
+  val unaryRToRec = id
+  val unaryWToRec = id
+  val condJmp = id
+  val test = id
+  val ternaryToRec = id
 
   datatype inst = ADD of ternary
                 | MULT of ternary
                 | INPUT of unaryW
                 | OUTPUT of unaryR
+                | JMP_T of jmp
+                | JMP_F of jmp
+                | TST_LT of tst
+                | TST_EQ of tst
                 | HALT
                 | UNKNOWN_OP of opcode
                 | UNKNOWN_MODE of opcode
@@ -282,6 +323,47 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
     (Memory.next3 ip m))
     (Memory.next2 ip m))
     (Memory.next ip m)
+  fun createJmp
+    (cmp : elem -> bool)
+    (f : jmp -> inst)
+    (m : memory)
+    (ip : addr)
+    (modes : mode list)
+    : inst =
+    tryRead (fn t =>
+    tryRead (fn j =>
+      let
+        val defIp = Memory.nextIP 3 ip
+        val (tm, jm) = (hd modes, (hd o tl) modes)
+        val t' = createParam (eta t) tm m
+        val j' = createParam (eta j) jm m
+      in
+        f {cmp=cmp, tst=t', jmpIp=j', defIp=defIp}
+      end)
+    (Memory.next2 ip m))
+    (Memory.next ip m)
+  fun createTst
+    (cmp : elem -> elem -> bool)
+    (f : tst -> inst)
+    (m : memory)
+    (ip : addr)
+    (modes : mode list)
+    : inst =
+    tryRead (fn ta =>
+    tryRead (fn tb =>
+    tryRead (fn r =>
+      let
+        val newIp = Memory.nextIP 4 ip
+        val (tam, tbm, rm) = (hd modes, (hd o tl) modes, (hd o tl o tl) modes)
+        val ta' = createParam (eta ta) tam m
+        val tb' = createParam (eta tb) tbm m
+        val r' = createDest (eta r) rm m
+      in
+        f {cmp=cmp, tstA=ta', tstB=tb', res=r', ifT=1, ifF=0, newIp=newIp}
+      end)
+    (Memory.next3 ip m))
+    (Memory.next2 ip m))
+    (Memory.next ip m)
 
   fun toMode (i : opcode) : mode =
     case i of
@@ -311,6 +393,10 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
              | 2 => createTernary MULT m ip modes
              | 3 => createUnaryW INPUT m ip modes
              | 4 => createUnaryR OUTPUT m ip modes
+             | 5 => createJmp (fn i => i <> 0) JMP_T m ip modes
+             | 6 => createJmp (fn i => i = 0) JMP_F m ip modes
+             | 7 => createTst (fn i => fn j => i < j) TST_LT m ip modes
+             | 8 => createTst (fn i => fn j => i = j) TST_EQ m ip modes
              | 99 => HALT
              (* or should this throw? *)
              | u => UNKNOWN_OP u) opc
@@ -352,7 +438,7 @@ functor CPUFn (structure Memory : MEMORY
       in
       tryRead (fn a => fn (m', a') =>
       tryRead (fn b => fn (m'', a'') =>
-      tryWrite (fn w => fn (m''', a''') =>
+      tryWrite (fn w => fn _ =>
         (RUNNING, w, newIp))
       ((#3 dest) (f (a,b))) (m'', a''))
       ((#3 srcB)()) (m', a'))
@@ -368,7 +454,7 @@ functor CPUFn (structure Memory : MEMORY
       : process =
       let val {addr, newIp} = Decoder.unaryWToRec u
       in
-      tryWrite (fn w => fn (m, a) => (RUNNING, w, newIp))
+      tryWrite (fn w => fn _ => (RUNNING, w, newIp))
                ((#3 addr) (IO.reader ())) (m, ip)
       end
     fun output
@@ -378,8 +464,38 @@ functor CPUFn (structure Memory : MEMORY
       : process =
       let val {addr, newIp} = Decoder.unaryRToRec u
       in
-      tryRead (fn e => fn (m, a) => (IO.writer e ; (RUNNING, m, newIp)))
+      tryRead (fn e => fn _ => (IO.writer e ; (RUNNING, m, newIp)))
               ((#3 addr)()) (m, ip)
+      end
+    fun jmp
+      (m : Memory.memory)
+      (ip : Memory.addr)
+      (j : Decoder.jmp)
+      : process =
+      let val {cmp, tst, jmpIp, defIp} = Decoder.condJmp j
+      in
+        tryRead (fn e => fn _ =>
+          if cmp e
+          then
+            tryRead (fn d => fn (m', a') => (RUNNING, m, (Memory.elemToAddr d)))
+              ((#3 jmpIp)()) (m, ip)
+          else (RUNNING, m, defIp))
+        ((#3 tst)()) (m, ip)
+      end
+    fun tst
+      (m : Memory.memory)
+      (ip : Memory.addr)
+      (t : Decoder.tst)
+      : process =
+      let val {cmp, tstA, tstB, res, ifT, ifF, newIp} = Decoder.test t
+      in
+        tryRead (fn a => fn (m', a') =>
+        tryRead (fn b => fn (m'', a'') =>
+        tryWrite (fn w => fn _ =>
+          (RUNNING, w, newIp))
+        ((#3 res)(if cmp a b then ifT else ifF)) (m'', a''))
+        ((#3 tstB)()) (m', a'))
+        ((#3 tstA)()) (m, ip)
       end
   end
 
@@ -389,6 +505,10 @@ functor CPUFn (structure Memory : MEMORY
             | Decoder.MULT a => Eval.mult m ip a
             | Decoder.INPUT a => Eval.input m ip a
             | Decoder.OUTPUT a => Eval.output m ip a
+            | Decoder.JMP_T a => Eval.jmp m ip a
+            | Decoder.JMP_F a => Eval.jmp m ip a
+            | Decoder.TST_LT a => Eval.tst m ip a
+            | Decoder.TST_EQ a => Eval.tst m ip a
             | Decoder.HALT => (FINISHED, m, ip)
             | Decoder.UNKNOWN_OP u => (UNKNOWN_ERR (ip, u), m, ip)
             | Decoder.UNKNOWN_MODE c => (UNKNOWN_ERR (ip, c), m, ip)
