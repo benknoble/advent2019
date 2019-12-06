@@ -172,7 +172,7 @@ fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
     else (List.tabulate (n - length,(fn i => z))) @ xs
   end
 
-functor DecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
+functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   type opcode = Memory.elem
   type elem = Memory.elem
   type memory = Memory.memory
@@ -403,7 +403,7 @@ functor CPUFn (structure Memory : MEMORY
   val interpret = run o load
 end
 
-structure Decoder = DecoderFn (Memory)
+structure Decoder = IntDecoderFn (Memory)
 
 functor IntcodeFn (structure IO : IO where type elem = int) =
   CPUFn (structure Memory = Memory
