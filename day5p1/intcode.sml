@@ -46,13 +46,14 @@ signature MEMORY = sig
                 -> ((addr * elem, memory) Either.either-> 'a)
 
   val nextIP : int -> addr -> addr
-  val nextN : int -> addr -> memory -> (addr, elem) Either.either
 
+  val nextN : int -> addr -> memory -> (addr, elem) Either.either
   val next : addr -> memory -> (addr, elem) Either.either
   val next2 : addr -> memory -> (addr, elem) Either.either
   val next3 : addr -> memory -> (addr, elem) Either.either
 
   val elemToAddr : elem -> addr
+  val addrToElem : addr -> elem
 
   val add : elem * elem -> elem
   val mult : elem * elem -> elem
@@ -60,24 +61,36 @@ end
 
 signature DECODER = sig
   type opcode
+  type elem
   type memory
   type addr
 
-  type unary
+  datatype mode = POS | IMM | UNKNOWN
+  type param = addr * mode * (unit -> (addr, elem) Either.either)
+  type dest = addr * mode * (elem -> (addr * elem, memory) Either.either)
+
+  type unaryR
+  type unaryW
   type ternary
-  val unaryToRec : unary -> {addr : addr, newIp : addr}
-  val ternaryToRec : ternary -> { srcA : addr
-                                , srcB : addr
-                                , dest : addr
+  val unaryRToRec : unaryR -> { addr : param
+                              , newIp : addr
+                              }
+  val unaryWToRec : unaryW -> { addr : dest
+                              , newIp : addr
+                              }
+  val ternaryToRec : ternary -> { srcA : param
+                                , srcB : param
+                                , dest : dest
                                 , newIp : addr
                                 }
 
   datatype inst = ADD of ternary
                 | MULT of ternary
-                | INPUT of unary
-                | OUTPUT of unary
+                | INPUT of unaryW
+                | OUTPUT of unaryR
                 | HALT
-                | UNKNOWN of opcode
+                | UNKNOWN_OP of opcode
+                | UNKNOWN_MODE of opcode
                 | MEM_ERR of addr
 
   val decode : memory -> addr -> inst
@@ -134,65 +147,167 @@ structure Memory : MEMORY = struct
   val next3 = nextN 3
 
   fun elemToAddr e = e
+  fun addrToElem e = e
 
   val add = op +
   val mult = op *
 end
 
+fun digits (i : int) : int list =
+let
+  fun digits' i' acc =
+    case i' of
+          0 => acc
+        | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
+in
+  digits' i []
+end
+
+val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
+
+fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
+  let val length = length xs
+  in
+    if length >= n then xs
+    else (List.tabulate (n - length,(fn i => z))) @ xs
+  end
+
 functor DecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   type opcode = Memory.elem
+  type elem = Memory.elem
   type memory = Memory.memory
   type addr = Memory.addr
-  type unary = {
-    addr : addr
+
+  datatype mode = POS | IMM | UNKNOWN
+  type param = addr * mode * (unit -> (addr, elem) Either.either)
+  type dest = addr * mode * (elem -> (addr * elem, memory) Either.either)
+
+  type unaryR = {
+    addr : param
+    , newIp : addr
+    }
+  type unaryW = {
+    addr : dest
     , newIp : addr
     }
   type ternary = {
-    srcA : addr
-    , srcB : addr
-    , dest : addr
+    srcA : param
+    , srcB : param
+    , dest : dest
     , newIp : addr
     }
+  val unaryRToRec = fn u => u
+  val unaryWToRec = fn u => u
+  val ternaryToRec = fn t => t
+
   datatype inst = ADD of ternary
                 | MULT of ternary
-                | INPUT of unary
-                | OUTPUT of unary
+                | INPUT of unaryW
+                | OUTPUT of unaryR
                 | HALT
-                | UNKNOWN of opcode
+                | UNKNOWN_OP of opcode
+                | UNKNOWN_MODE of opcode
                 | MEM_ERR of Memory.addr
 
   val eta = Memory.elemToAddr
+  val ate = Memory.addrToElem
   val tryRead = Memory.tryRead MEM_ERR
 
-  val unaryToRec = fn u => u
-  val ternaryToRec = fn t => t
+  fun createParam a m mem : param=
+    (a
+    ,m
+    ,case m of
+          POS => (fn () => Memory.read mem a)
+        | IMM => (fn () => Either.R (Memory.addrToElem a))
+        | UNKNOWN => (fn () => Either.L a))
 
-  fun createUnary
-    (f : unary -> inst) (m : memory) (ip : addr) : inst =
-    let val newIp = Memory.nextIP 2 ip
-    in tryRead (fn a => f {addr=(eta a), newIp=newIp}) (Memory.next ip m)
-    end
-  fun createArith
-    (f : ternary -> inst) (m : memory) (ip : addr)
+  fun createDest (a : addr) m mem : dest =
+    (a
+    ,m
+    ,case m of
+          POS => (fn e => Memory.tryRead
+                            (fn e' => Either.L (a, e))
+                            (fn a' => Memory.write mem (eta a') e)
+                            (Memory.read mem a))
+        | IMM => Memory.write mem a
+        | UNKNOWN => (fn e => Either.L (a, e)))
+
+  fun createUnaryR
+    (f : unaryR -> inst)
+    (m : memory)
+    (ip : addr)
+    (modes : mode list)
     : inst =
-    let val newIp = Memory.nextIP 4 ip
-    in
-      tryRead (fn a =>
-      tryRead (fn b =>
-      tryRead (fn d => f {srcA=(eta a), srcB=(eta b), dest=(eta d), newIp=newIp})
-      (Memory.next3 ip m))
-      (Memory.next2 ip m))
+    let val newIp = Memory.nextIP 2 ip
+    in tryRead (fn a =>
+      f {addr=(createParam (eta a) (hd modes) m), newIp=newIp})
       (Memory.next ip m)
     end
+  fun createUnaryW
+    (f : unaryW -> inst)
+    (m : memory)
+    (ip : addr)
+    (modes : mode list)
+    : inst =
+    let val newIp = Memory.nextIP 2 ip
+    in tryRead (fn a =>
+      f {addr=(createDest (eta a) (hd modes) m), newIp=newIp})
+      (Memory.next ip m)
+    end
+  fun createTernary
+    (f : ternary -> inst)
+    (m : memory)
+    (ip : addr)
+    (modes : mode list)
+    : inst =
+    tryRead (fn a =>
+    tryRead (fn b =>
+    tryRead (fn d =>
+      let
+        val newIp = Memory.nextIP 4 ip
+        val (am, bm, dm) = (hd modes, (hd o tl) modes, (hd o tl o tl) modes)
+        val a' = createParam (eta a) am m
+        val b' = createParam (eta b) bm m
+        val d' = createDest (eta d) dm m
+      in
+        f {srcA=a', srcB=b', dest=d', newIp=newIp}
+      end)
+    (Memory.next3 ip m))
+    (Memory.next2 ip m))
+    (Memory.next ip m)
 
-  fun decode (m : memory) (ip : addr) : inst =
-    tryRead (fn 1 => createArith ADD m ip
-              | 2 => createArith MULT m ip
-              | 3 => createUnary INPUT m ip
-              | 4 => createUnary OUTPUT m ip
-              | 99 => HALT
-              (* or should this throw? *)
-              | u => UNKNOWN u)
+  fun toMode (i : opcode) : mode =
+    case i of
+         0 => POS
+       | 1 => IMM
+       | _ => UNKNOWN
+
+  fun opToInst (code : opcode) : opcode * mode list =
+    let
+      (* padding is just to account for, e.g. '2' is actually '0002' *)
+      val digits = pad 5 0 (digits code)
+      val opc = fromDigits (List.drop (digits, length digits - 2))
+      val modes = map toMode (List.take (digits, length digits - 2))
+    in
+      if List.exists (fn m => m = UNKNOWN) modes
+      then (code, [UNKNOWN])
+      else (opc, rev modes)
+    end
+
+  fun decode m ip : inst =
+    tryRead (fn red =>
+    let
+      val (opc, modes) = opToInst red
+    in
+      if hd modes = UNKNOWN then UNKNOWN_MODE red
+      else (fn 1 => createTernary ADD m ip modes
+             | 2 => createTernary MULT m ip modes
+             | 3 => createUnaryW INPUT m ip modes
+             | 4 => createUnaryR OUTPUT m ip modes
+             | 99 => HALT
+             (* or should this throw? *)
+             | u => UNKNOWN_OP u) opc
+    end)
     (Memory.read m ip)
 end
 
@@ -232,9 +347,9 @@ functor CPUFn (structure Memory : MEMORY
       tryRead (fn b => fn (m'', a'') =>
       tryWrite (fn w => fn (m''', a''') =>
         (RUNNING, w, newIp))
-      (Memory.write m dest (f (a,b))) (m'', a''))
-      (Memory.read m srcB) (m', a'))
-      (Memory.read m srcA) (m, ip)
+      ((#3 dest) (f (a,b))) (m'', a''))
+      ((#3 srcB)()) (m', a'))
+      ((#3 srcA)()) (m, ip)
       end
 
     val add = arithOp Memory.add
@@ -242,22 +357,22 @@ functor CPUFn (structure Memory : MEMORY
     fun input
       (m : Memory.memory)
       (ip : Memory.addr)
-      (u : Decoder.unary)
+      (u : Decoder.unaryW)
       : process =
-      let val {addr, newIp} = Decoder.unaryToRec u
+      let val {addr, newIp} = Decoder.unaryWToRec u
       in
       tryWrite (fn w => fn (m, a) => (RUNNING, w, newIp))
-               (Memory.write m addr (IO.reader ())) (m, ip)
+               ((#3 addr) (IO.reader ())) (m, ip)
       end
     fun output
       (m : Memory.memory)
       (ip : Memory.addr)
-      (u : Decoder.unary)
+      (u : Decoder.unaryR)
       : process =
-      let val {addr, newIp} = Decoder.unaryToRec u
+      let val {addr, newIp} = Decoder.unaryRToRec u
       in
       tryRead (fn e => fn (m, a) => (IO.writer e ; (RUNNING, m, newIp)))
-              (Memory.read m addr) (m, ip)
+              ((#3 addr)()) (m, ip)
       end
   end
 
@@ -268,7 +383,8 @@ functor CPUFn (structure Memory : MEMORY
             | Decoder.INPUT a => Eval.input m ip a
             | Decoder.OUTPUT a => Eval.output m ip a
             | Decoder.HALT => (FINISHED, m, ip)
-            | Decoder.UNKNOWN u => (UNKNOWN_ERR (ip, u), m, ip)
+            | Decoder.UNKNOWN_OP u => (UNKNOWN_ERR (ip, u), m, ip)
+            | Decoder.UNKNOWN_MODE c => (UNKNOWN_ERR (ip, c), m, ip)
             | Decoder.MEM_ERR e => (MEM_R_ERR e, m, ip))
     (* all other states (finished, errors) are fixed points *)
     | step p = p
@@ -289,8 +405,9 @@ structure StdIO : IO = struct
   val writer = fn i => TextIO.print ((Int.toString i) ^ "\n")
 end
 
+structure Decoder = DecoderFn (Memory)
 structure Intcode = CPUFn (structure Memory = Memory
-                           structure Decoder = DecoderFn (Memory)
+                           structure Decoder = Decoder
                            structure IO = StdIO)
 
 structure Reader = struct
@@ -308,4 +425,17 @@ structure Reader = struct
     readFromStream o TextIO.openIn
 end
 
-val interpreter = Intcode.interpret o Reader.read
+(* useful interactively *)
+val interpret = Intcode.interpret o Reader.read
+
+structure DiagnosticIO : IO = struct
+  type elem = int
+  val reader = fn () => 1
+  val writer = StdIO.writer
+end
+
+structure DiagnosticIntcode = CPUFn (structure Memory = Memory
+                                     structure Decoder = Decoder
+                                     structure IO = DiagnosticIO)
+
+val solve = DiagnosticIntcode.interpret o Reader.readFromFile
