@@ -225,11 +225,18 @@ functor DecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
     (a
     ,m
     ,case m of
-          POS => (fn e => Memory.tryRead
-                            (fn e' => Either.L (a, e))
-                            (fn a' => Memory.write mem (eta a') e)
-                            (Memory.read mem a))
+          POS => Memory.write mem a
+          (* for a destination, is there a difference?
+          *  this version says: write to the address named
+          *)
         | IMM => Memory.write mem a
+        (* this version says: write the to the address named by reading the
+        * argument
+        *)
+        (* | IMM => (fn e => Memory.tryRead *)
+        (*                     (fn e' => Either.L (e', e)) *)
+        (*                     (fn a' => Memory.write mem (eta a') e) *)
+        (*                     (Memory.read mem a)) *)
         | UNKNOWN => (fn e => Either.L (a, e)))
 
   fun createUnaryR
