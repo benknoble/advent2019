@@ -30,12 +30,12 @@ structure OrbitMap : ORBITMAP = struct
   fun insert ma (k, v) = update ma k v
   val build = List.foldl (fn ((k,v),m) => update m k v) empty
 
-  val mkVisited : orbitMap -> node list = (map #1) o Map.listItemsi
-  val mkCounter = Map.mapi (fn (k : node, v : v) => 0)
-  val sum = Map.foldl (op +) 0
-  val hasUnvisited : node list -> bool = not o List.null
   fun counter f m =
     let
+      val mkVisited : orbitMap -> node list = (map #1) o Map.listItemsi
+      val mkCounter = Map.mapi (fn (k : node, v : v) => 0)
+      val sum = Map.foldl (op +) 0
+      val hasUnvisited : node list -> bool = not o List.null
       val visited = mkVisited m
       val counters = mkCounter m
       fun count key vst ctr =
@@ -59,6 +59,7 @@ structure OrbitMap : ORBITMAP = struct
     in
       sum (countAll visited counters)
     end
+
   val direct = counter (fn SOME s => Set.numItems s
                          | NONE => 0)
   fun indirect m =
