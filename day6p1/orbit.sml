@@ -61,7 +61,19 @@ structure OrbitMap : ORBITMAP = struct
     end
   val direct = counter (fn SOME s => Set.numItems s
                          | NONE => 0)
-  val indirect = counter (fn _ => 0)
+  fun indirect m =
+    let
+      fun count' acc n =
+        case Map.find (m, n) of
+            NONE => acc
+          | SOME s => List.foldl (op +) 0 (map (count' (1+acc)) (Set.listItems s))
+      fun count NONE = 0
+        | count (SOME s) =
+        List.foldl (op +) 0
+        (map (count' 0) (Set.listItems s))
+    in
+      counter count m
+    end
 end
 
 structure Reader = struct
