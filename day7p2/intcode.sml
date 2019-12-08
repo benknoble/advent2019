@@ -564,15 +564,13 @@ end
 fun amplifierChain (init : unit -> int) (p : Intcode.program) (phases : int list) : int option =
   case phases of
        [] => NONE
-     | hd::tl =>
+     | hed::tal =>
     let
       val result = ref 0
-      (* val reader' = Option.valOf o TextIO.scanStream (Int.scan StringCvt.DEC) *)
-      (* val reader = fn () => reader' TextIO.stdIn *)
-      val start = Amplifier.mkReader hd init
-      val outputs = map (fn ph => ref 0) tl
+      val start = Amplifier.mkReader hed init
+      val outputs = map (fn ph => ref 0) tal
       val readers' = map (fn (out, t) => Amplifier.mkReader t (fn () => !out))
-                         (ListPair.zip (outputs, tl))
+                         (ListPair.zip (outputs, tal))
       val readers = start::readers'
       val writers = map Amplifier.mkWriter outputs @ [Amplifier.mkWriter result]
       val amps = ListPair.zip (readers, writers)
@@ -620,7 +618,7 @@ fun perm lst =
 
 fun solution prog =
   let
-    val phases = perm [0,1,2,3,4]
+    val phases = perm [5,6,7,8,9]
     val amplify = amplify0 prog
     val thrusters = List.mapPartial amplify phases
   in
