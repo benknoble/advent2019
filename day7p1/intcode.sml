@@ -116,13 +116,16 @@ signature DECODER = sig
 end
 
 signature CPU = sig
+  type elem
+  type instream
+  type outstream
   type program
   type process
   type result
   val load : program -> process
-  val run : process -> result
-  (* usually just run o load *)
-  val interpret : program -> result
+  val run : process -> instream -> outstream -> result
+  (* usually run o load *)
+  val interpret : program -> instream -> outstream -> result
 end
 
 structure Memory : MEMORY = struct
@@ -373,7 +376,7 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
 
   fun opToInst (code : opcode) : opcode * mode list =
     let
-      (* padding is just to account for, e.g. '2' is actually '0002' *)
+      (* padding is to account for, e.g. '2' is actually '0002' *)
       val digits = pad 5 0 (digits code)
       val opc = fromDigits (List.drop (digits, length digits - 2))
       val modes = map toMode (List.take (digits, length digits - 2))
@@ -405,8 +408,11 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
 end
 
 functor CPUFn (structure Memory : MEMORY
-               structure Decoder : DECODER sharing Decoder = Memory
-               structure IO : IO sharing IO = Memory) : CPU = struct
+               structure Decoder : DECODER sharing Decoder = Memory)
+               : CPU = struct
+  type elem = Memory.elem
+  type instream = unit -> elem
+  type outstream = elem -> unit
   datatype state = RUNNING
                   | MEM_R_ERR of Memory.addr
                   | MEM_W_ERR of Memory.addr * Memory.elem
@@ -448,6 +454,7 @@ functor CPUFn (structure Memory : MEMORY
     val add = arithOp Memory.add
     val mult = arithOp Memory.mult
     fun input
+      (ins : instream)
       (m : Memory.memory)
       (ip : Memory.addr)
       (u : Decoder.unaryW)
@@ -455,16 +462,17 @@ functor CPUFn (structure Memory : MEMORY
       let val {addr, newIp} = Decoder.unaryWToRec u
       in
       tryWrite (fn w => fn _ => (RUNNING, w, newIp))
-               ((#3 addr) (IO.reader ())) (m, ip)
+               ((#3 addr) (ins())) (m, ip)
       end
     fun output
+      (outs : outstream)
       (m : Memory.memory)
       (ip : Memory.addr)
       (u : Decoder.unaryR)
       : process =
       let val {addr, newIp} = Decoder.unaryRToRec u
       in
-      tryRead (fn e => fn _ => (IO.writer e ; (RUNNING, m, newIp)))
+      tryRead (fn e => fn _ => (outs e ; (RUNNING, m, newIp)))
               ((#3 addr)()) (m, ip)
       end
     fun jmp
@@ -476,9 +484,8 @@ functor CPUFn (structure Memory : MEMORY
       in
         tryRead (fn e => fn _ =>
           if cmp e
-          then
-            tryRead (fn d => fn (m', a') => (RUNNING, m, (Memory.elemToAddr d)))
-              ((#3 jmpIp)()) (m, ip)
+          then tryRead (fn d => fn (m', a') => (RUNNING, m, (Memory.elemToAddr d)))
+                       ((#3 jmpIp)()) (m, ip)
           else (RUNNING, m, defIp))
         ((#3 tst)()) (m, ip)
       end
@@ -499,36 +506,33 @@ functor CPUFn (structure Memory : MEMORY
       end
   end
 
-  fun step (RUNNING, m, ip) = (
-        case Decoder.decode m ip of
-              Decoder.ADD a => Eval.add m ip a
-            | Decoder.MULT a => Eval.mult m ip a
-            | Decoder.INPUT a => Eval.input m ip a
-            | Decoder.OUTPUT a => Eval.output m ip a
-            | Decoder.JMP_T a => Eval.jmp m ip a
-            | Decoder.JMP_F a => Eval.jmp m ip a
-            | Decoder.TST_LT a => Eval.tst m ip a
-            | Decoder.TST_EQ a => Eval.tst m ip a
-            | Decoder.HALT => (FINISHED, m, ip)
-            | Decoder.UNKNOWN_OP u => (UNKNOWN_ERR (ip, u), m, ip)
-            | Decoder.UNKNOWN_MODE c => (UNKNOWN_ERR (ip, c), m, ip)
-            | Decoder.MEM_ERR e => (MEM_R_ERR e, m, ip))
+  fun step ins outs proc = case proc of
+    (RUNNING, m, ip) => (
+      case Decoder.decode m ip of
+           Decoder.ADD a => Eval.add m ip a
+         | Decoder.MULT a => Eval.mult m ip a
+         | Decoder.INPUT a => Eval.input ins m ip a
+         | Decoder.OUTPUT a => Eval.output outs m ip a
+         | Decoder.JMP_T a => Eval.jmp m ip a
+         | Decoder.JMP_F a => Eval.jmp m ip a
+         | Decoder.TST_LT a => Eval.tst m ip a
+         | Decoder.TST_EQ a => Eval.tst m ip a
+         | Decoder.HALT => (FINISHED, m, ip)
+         | Decoder.UNKNOWN_OP u => (UNKNOWN_ERR (ip, u), m, ip)
+         | Decoder.UNKNOWN_MODE c => (UNKNOWN_ERR (ip, c), m, ip)
+         | Decoder.MEM_ERR e => (MEM_R_ERR e, m, ip))
+    | p => p
     (* all other states (finished, errors) are fixed points *)
-    | step p = p
 
   fun load p = (RUNNING, p, init)
-  fun run (s, m, ip) = case s of
-                            RUNNING => run (step (s, m, ip))
-                          | _ => (s, m, ip)
+  fun run (s, m, ip) ins outs =
+    case s of
+         RUNNING => run (step ins outs (s, m, ip)) ins outs
+       | _ => (s, m, ip)
   val interpret = run o load
 end
 
 structure Decoder = IntDecoderFn (Memory)
-
-functor IntcodeFn (structure IO : IO where type elem = int) =
-  CPUFn (structure Memory = Memory
-         structure Decoder = Decoder
-         structure IO = IO)
 
 structure StdIO : IO = struct
   type elem = int
@@ -539,7 +543,44 @@ structure StdIO : IO = struct
   val writer = fn i => TextIO.print ((Int.toString i) ^ "\n")
 end
 
-structure Intcode = IntcodeFn (structure IO = StdIO)
+structure Intcode = CPUFn (structure Memory = Memory
+                           structure Decoder = Decoder)
+
+structure Amplifier =
+struct
+  fun mkReader phase reader =
+    let
+      val hasReadPhase = ref false
+    in
+      fn () =>
+        (* this bang is unfortunate; it means "value of", as opposed to "not" *)
+        if !hasReadPhase then reader()
+        else (hasReadPhase := true; phase)
+    end
+  fun mkWriter (output : int ref) =
+    fn i => output := i
+end
+
+fun amplifierChain (init : unit -> int) (p : Intcode.program) (phases : int list) : int option =
+  case phases of
+       [] => NONE
+     | hd::tl =>
+    let
+      val result = ref 0
+      (* val reader' = Option.valOf o TextIO.scanStream (Int.scan StringCvt.DEC) *)
+      (* val reader = fn () => reader' TextIO.stdIn *)
+      val start = Amplifier.mkReader hd init
+      val outputs = map (fn ph => ref 0) tl
+      val readers' = map (fn (out, t) => Amplifier.mkReader t (fn () => !out))
+                         (ListPair.zip (outputs, tl))
+      val readers = start::readers'
+      val writers = map Amplifier.mkWriter outputs @ [Amplifier.mkWriter result]
+      val amps = ListPair.zip (readers, writers)
+      val proc = Intcode.load p
+    in
+      map (fn (r, w) => Intcode.run proc r w) amps ;
+      SOME (!result)
+    end
 
 structure Reader = struct
   val read : string -> Intcode.program =
@@ -559,12 +600,31 @@ end
 (* useful interactively *)
 val interpret = Intcode.interpret o Reader.read
 
-structure DiagnosticIO : IO = struct
-  type elem = int
-  val reader = fn () => 5
-  val writer = StdIO.writer
-end
+val amplify0 = amplifierChain (fn () => 0)
 
-structure DiagnosticIntcode = IntcodeFn (structure IO = DiagnosticIO)
+(* adapted from https://stackoverflow.com/a/46227650/4400820 *)
+fun perm lst =
+  let
+    infix ^^
+    fun x ^^ ll = map (fn l => x::l) ll
+    fun perm' lef rig =
+      case rig of
+           [] => [[]]
+         | [x] => x ^^ (perm' [] lef)
+         | x::t => let val s = perm' (x::lef) t
+                   in (x ^^ perm' [] (lef @ t)) @ s
+                   end
+  in
+    perm' [] lst
+  end
 
-val solve = DiagnosticIntcode.interpret o Reader.readFromFile
+fun solution prog =
+  let
+    val phases = perm [0,1,2,3,4]
+    val amplify = amplify0 prog
+    val thrusters = List.mapPartial amplify phases
+  in
+    foldl Int.max ~1 thrusters
+  end
+
+val solve = solution o Reader.readFromFile
