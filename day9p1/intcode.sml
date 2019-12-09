@@ -12,6 +12,29 @@ structure Either = struct
     fold (fn a => L a) (fn b => f b)
 end
 
+structure Utils = struct
+  fun digits (i : int) : int list =
+  let
+    fun digits' i' acc =
+      case i' of
+            0 => acc
+          | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
+  in
+    digits' i []
+  end
+
+  val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
+
+  fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
+    let val length = length xs
+    in
+      if length >= n then xs
+      else (List.tabulate (n - length,(fn i => z))) @ xs
+    end
+
+  fun padRight n z xs = rev (pad n z (rev xs))
+end
+
 signature IO = sig
   type elem
   val reader : unit -> elem
@@ -142,15 +165,21 @@ structure Memory : MEMORY = struct
   type writeRes = (writeErr, writeSucc) E.either
 
   fun read (rb,m) p =
-    R (List.nth (m, p))
-    handle
-    Subscript => L p
+    let val m' = if length m > p then m else Utils.padRight (p+1) 0 m
+    in
+      R (List.nth (m', p))
+      handle
+      Subscript => L p
+    end
   fun read' p m = read m p
 
   fun write (rb,m) p e =
-    R (rb, (List.take (m, p)) @ [e] @ (List.drop (m, p+1)))
-    handle
-    Subscript => L (p, e)
+    let val m' = if length m > p then m else Utils.padRight (p+1) 0 m
+    in
+      R (rb, (List.take (m', p)) @ [e] @ (List.drop (m', p+1)))
+      handle
+      Subscript => L (p, e)
+    end
   fun write' p e m = write m p e
 
   val tryRead = E.fold
@@ -171,27 +200,6 @@ structure Memory : MEMORY = struct
 
   val add = op +
   val mult = op *
-end
-
-structure Utils = struct
-  fun digits (i : int) : int list =
-  let
-    fun digits' i' acc =
-      case i' of
-            0 => acc
-          | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
-  in
-    digits' i []
-  end
-
-  val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
-
-  fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
-    let val length = length xs
-    in
-      if length >= n then xs
-      else (List.tabulate (n - length,(fn i => z))) @ xs
-    end
 end
 
 functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
@@ -582,10 +590,10 @@ end
 
 (* useful interactively *)
 structure I = struct
-  val interpret = Intcode.interpret o Reader.read
+  fun interpret s = Intcode.interpret (Reader.read s) StdIO.reader StdIO.writer
 end
 
 structure Solution = struct
-  fun solution prog = 0
+  fun solution prog = Intcode.interpret prog (fn () => 1) StdIO.writer
   val solve = solution o Reader.readFromFile
 end
