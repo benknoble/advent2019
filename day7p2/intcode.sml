@@ -175,24 +175,26 @@ structure Memory : MEMORY = struct
   val mult = op *
 end
 
-fun digits (i : int) : int list =
-let
-  fun digits' i' acc =
-    case i' of
-          0 => acc
-        | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
-in
-  digits' i []
-end
-
-val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
-
-fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
-  let val length = length xs
+structure Utils = struct
+  fun digits (i : int) : int list =
+  let
+    fun digits' i' acc =
+      case i' of
+            0 => acc
+          | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
   in
-    if length >= n then xs
-    else (List.tabulate (n - length,(fn i => z))) @ xs
+    digits' i []
   end
+
+  val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
+
+  fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
+    let val length = length xs
+    in
+      if length >= n then xs
+      else (List.tabulate (n - length,(fn i => z))) @ xs
+    end
+end
 
 functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   type opcode = Memory.elem
@@ -377,8 +379,8 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   fun opToInst (code : opcode) : opcode * mode list =
     let
       (* padding is to account for, e.g. '2' is actually '0002' *)
-      val digits = pad 5 0 (digits code)
-      val opc = fromDigits (List.drop (digits, length digits - 2))
+      val digits = Utils.pad 5 0 (Utils.digits code)
+      val opc = Utils.fromDigits (List.drop (digits, length digits - 2))
       val modes = map toMode (List.take (digits, length digits - 2))
     in
       if List.exists (fn m => m = UNKNOWN) modes
@@ -557,28 +559,29 @@ struct
         if !hasReadPhase then reader()
         else (hasReadPhase := true; phase)
     end
+
   fun mkWriter (output : int ref) =
     fn i => output := i
-end
 
-fun amplifierChain (init : unit -> int) (p : Intcode.program) (phases : int list) : int option =
-  case phases of
-       [] => NONE
-     | hed::tal =>
-    let
-      val result = ref 0
-      val start = Amplifier.mkReader hed init
-      val outputs = map (fn ph => ref 0) tal
-      val readers' = map (fn (out, t) => Amplifier.mkReader t (fn () => !out))
-                         (ListPair.zip (outputs, tal))
-      val readers = start::readers'
-      val writers = map Amplifier.mkWriter outputs @ [Amplifier.mkWriter result]
-      val amps = ListPair.zip (readers, writers)
-      val proc = Intcode.load p
-    in
-      map (fn (r, w) => Intcode.run proc r w) amps ;
-      SOME (!result)
-    end
+  fun amplifierChain (init : unit -> int) (p : Intcode.program) (phases : int list) : int option =
+    case phases of
+        [] => NONE
+      | hed::tal =>
+      let
+        val result = ref 0
+        val start = mkReader hed init
+        val outputs = map (fn ph => ref 0) tal
+        val readers' = map (fn (out, t) => mkReader t (fn () => !out))
+                          (ListPair.zip (outputs, tal))
+        val readers = start::readers'
+        val writers = map mkWriter outputs @ [mkWriter result]
+        val amps = ListPair.zip (readers, writers)
+        val proc = Intcode.load p
+      in
+        map (fn (r, w) => Intcode.run proc r w) amps ;
+        SOME (!result)
+      end
+end
 
 structure Reader = struct
   val read : string -> Intcode.program =
@@ -596,33 +599,37 @@ structure Reader = struct
 end
 
 (* useful interactively *)
-val interpret = Intcode.interpret o Reader.read
+structure I = struct
+  val interpret = Intcode.interpret o Reader.read
+end
 
-val amplify0 = amplifierChain (fn () => 0)
+structure Solution = struct
+  val amplify0 = Amplifier.amplifierChain (fn () => 0)
 
-(* adapted from https://stackoverflow.com/a/46227650/4400820 *)
-fun perm lst =
-  let
-    infix ^^
-    fun x ^^ ll = map (fn l => x::l) ll
-    fun perm' lef rig =
-      case rig of
-           [] => [[]]
-         | [x] => x ^^ (perm' [] lef)
-         | x::t => let val s = perm' (x::lef) t
-                   in (x ^^ perm' [] (lef @ t)) @ s
-                   end
-  in
-    perm' [] lst
-  end
+  (* adapted from https://stackoverflow.com/a/46227650/4400820 *)
+  fun perm lst =
+    let
+      infix ^^
+      fun x ^^ ll = map (fn l => x::l) ll
+      fun perm' lef rig =
+        case rig of
+            [] => [[]]
+          | [x] => x ^^ (perm' [] lef)
+          | x::t => let val s = perm' (x::lef) t
+                    in (x ^^ perm' [] (lef @ t)) @ s
+                    end
+    in
+      perm' [] lst
+    end
 
-fun solution prog =
-  let
-    val phases = perm [5,6,7,8,9]
-    val amplify = amplify0 prog
-    val thrusters = List.mapPartial amplify phases
-  in
-    foldl Int.max ~1 thrusters
-  end
+  fun solution prog =
+    let
+      val phases = perm [5,6,7,8,9]
+      val amplify = amplify0 prog
+      val thrusters = List.mapPartial amplify phases
+    in
+      foldl Int.max ~1 thrusters
+    end
 
-val solve = solution o Reader.readFromFile
+  val solve = solution o Reader.readFromFile
+end
