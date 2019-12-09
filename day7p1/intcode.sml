@@ -257,7 +257,7 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   val ate = Memory.addrToElem
   val tryRead = Memory.tryRead MEM_ERR
 
-  fun createParam a m mem : param=
+  fun createParam a m mem : param =
     (a
     ,m
     ,case m of
