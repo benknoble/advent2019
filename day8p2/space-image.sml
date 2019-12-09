@@ -2,8 +2,27 @@ structure Image = struct
   type pixel = int
   type row = pixel list
   type layer = row list
-  type image = layer list
-  fun fromString rows columns str : image =
+  type encoding = layer list * int * int
+
+  datatype color = BLACK
+                 | WHITE
+                 | TRANSPARENT
+                 | UNKNOWN
+  type image = int list list
+
+  fun pixelToColor p = case p of
+                            0 => BLACK
+                          | 1 => WHITE
+                          | 2 => TRANSPARENT
+                          | _ => UNKNOWN
+  fun colorToPixel c = case c of
+                            BLACK => 0
+                          | WHITE => 1
+                          (* shouldn't have these *)
+                          | TRANSPARENT => 2
+                          | UNKNOWN => 999
+
+  fun fromString rows columns str : encoding =
     let
       val tokens = String.explode str
       val pixels = List.mapPartial Int.fromString (map Char.toString tokens)
@@ -31,25 +50,65 @@ structure Image = struct
           readLayers' rows cols pix []
         end
     in
-      readLayers rows columns pixels
+      (readLayers rows columns pixels, rows, columns)
     end
 
-  fun count (p : pixel) lay =
-    foldl (fn (r, s) =>
-    s + foldl (fn (p', ac) => if p = p' then ac+1 else ac) 0 r)
-    0 lay
+  fun get (x,y) =
+    let
+      fun getter n =
+        let fun getter' n f = if n = 1 then hd o f
+                              else getter' (n-1) (tl o f)
+        in getter' n (fn id => id)
+        end
+    in
+      getter x o getter y
+    end
+
+  fun decode (e,rows,cols) : image =
+    let
+      val rows' = List.tabulate (rows, fn i => i+1)
+      val cols' = List.tabulate (cols, fn i => i+1)
+      val colors = map (fn lay => map (fn row => map pixelToColor row) lay) e
+      val color = foldl (fn (c, cur) => if cur = TRANSPARENT then c else cur) TRANSPARENT
+      val colorStacks = map (fn row =>
+                        map (fn col =>
+                        map (get (col,row))
+                        colors)
+                        cols')
+                        rows'
+      val colorsFinal = map (fn row =>
+                        map (fn col =>
+                        color (get (col,row) colorStacks))
+                        cols')
+                        rows'
+    in
+      map (fn row =>
+      map (fn col =>
+      colorToPixel (get (col,row) colorsFinal))
+      cols')
+      rows'
+    end
+
+  fun pixelToString p = case p of
+                             0 => " "
+                           | 1 => "*"
+                           | _ => "?"
+
+  fun toString image =
+    String.concat
+    (map (fn row =>
+      let val row' = map pixelToString row
+      in String.concat (row' @ ["\n"])
+      end) image)
 end
 
 structure Solution = struct
   val readString = TextIO.inputAll o TextIO.openIn
   fun solve s =
     let
-      val image = Image.fromString 6 25 (readString s)
-      val counts = ListPair.zip (map (Image.count 0) image, image)
-      val (_,smallest) =
-        foldl (fn ((c,l), (m,l')) => if c < m then (c,l) else (m,l'))
-        (6*25 + 1, []) counts (* at most all the pixels are 0 *)
+      val encoding = Image.fromString 6 25 (readString s)
+      val image = Image.decode encoding
     in
-      Image.count 1 smallest * Image.count 2 smallest
+      print (Image.toString image)
     end
 end
