@@ -6,23 +6,33 @@ structure Either = struct
     case e of
          L a => l a
        | R b => r b
-  (* fun map (f : 'b -> 'c) : ('a, 'b) either -> ('a, 'c) either = *)
-  (*   fold (fn a => L a) (fn b => R (f b)) *)
-  (* fun flatMap (f : 'b -> ('a, 'b) either) : ('a, 'b) either -> ('a, 'b) either = *)
-  (*   fold (fn a => L a) (fn b => f b) *)
-  (* fun contains (b : ''b) : ('a, ''b) either -> bool = *)
-  (*   fold (fn _ => false) (fn b' => b = b') *)
-  (* fun exists (p : 'b -> bool) : ('a, 'b) either -> bool = *)
-  (*   fold (fn _ => false) (fn b => p b) *)
-  (* fun filterOrElse (p : 'b -> bool) (zero : 'a) : *)
-  (*   ('a, 'b) either -> ('a, 'b) either = *)
-  (*   fold (fn a => L a) (fn b => if p b then R b else L zero) *)
-  (* fun orElse (test : ('a, 'b) either) (or : ('a, 'b) either) : ('a, 'b) either = *)
-  (*   fold (fn _ => or) (fn b => R b) test *)
-  (* fun swap (e : ('a, 'b) either) : ('b, 'a) either = *)
-  (*   fold (fn a => R a) (fn b => L b) e *)
-  fun lift (f : 'a -> 'c) (g : 'b -> 'c): ('a, 'b) either -> 'c =
-    fold f g
+  fun map (f : 'b -> 'c) : ('a, 'b) either -> ('a, 'c) either =
+    fold (fn a => L a) (fn b => R (f b))
+  fun flatMap (f : 'b -> ('a, 'b) either) : ('a, 'b) either -> ('a, 'b) either =
+    fold (fn a => L a) (fn b => f b)
+end
+
+structure Utils = struct
+  fun digits (i : int) : int list =
+  let
+    fun digits' i' acc =
+      case i' of
+            0 => acc
+          | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
+  in
+    digits' i []
+  end
+
+  val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
+
+  fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
+    let val length = length xs
+    in
+      if length >= n then xs
+      else (List.tabulate (n - length,(fn i => z))) @ xs
+    end
+
+  fun padRight n z xs = rev (pad n z (rev xs))
 end
 
 signature IO = sig
@@ -43,7 +53,10 @@ signature MEMORY = sig
   val tryRead : (addr -> 'a) -> (elem -> 'a)
                 -> ((addr, elem) Either.either -> 'a)
   val tryWrite : (addr * elem -> 'a) -> (memory -> 'a)
-                -> ((addr * elem, memory) Either.either-> 'a)
+                 -> ((addr * elem, memory) Either.either -> 'a)
+
+  val getRelToBase : memory -> addr -> addr
+  val setRelBase : memory -> addr -> memory
 
   val nextIP : int -> addr -> addr
 
@@ -65,7 +78,11 @@ signature DECODER = sig
   type memory
   type addr
 
-  datatype mode = POS | IMM | UNKNOWN
+  datatype mode = POS
+                | IMM
+                | REL
+                | UNKNOWN
+
   type param = addr * mode * (unit -> (addr, elem) Either.either)
   type dest = addr * mode * (elem -> (addr * elem, memory) Either.either)
 
@@ -107,6 +124,7 @@ signature DECODER = sig
                 | JMP_F of jmp
                 | TST_LT of tst
                 | TST_EQ of tst
+                | SET_BASE of unaryR
                 | HALT
                 | UNKNOWN_OP of opcode
                 | UNKNOWN_MODE of opcode
@@ -135,7 +153,7 @@ structure Memory : MEMORY = struct
 
   type elem = int
   type addr = int
-  type memory = elem list
+  type memory = int * elem list
 
   val base = 0
 
@@ -146,20 +164,29 @@ structure Memory : MEMORY = struct
   type readRes = (readErr, readSucc) E.either
   type writeRes = (writeErr, writeSucc) E.either
 
-  fun read m p =
-    R (List.nth (m, p))
-    handle
-    Subscript => L p
+  fun read (rb,m) p =
+    let val m' = if length m > p then m else Utils.padRight (p+1) 0 m
+    in
+      R (List.nth (m', p))
+      handle
+      Subscript => L p
+    end
   fun read' p m = read m p
 
-  fun write m p e =
-    R (List.take(m, p) @ [e] @ List.drop(m, p+1))
-    handle
-    Subscript => L (p, e)
+  fun write (rb,m) p e =
+    let val m' = if length m > p then m else Utils.padRight (p+1) 0 m
+    in
+      R (rb, (List.take (m', p)) @ [e] @ (List.drop (m', p+1)))
+      handle
+      Subscript => L (p, e)
+    end
   fun write' p e m = write m p e
 
-  val tryRead = E.lift
-  val tryWrite = E.lift
+  val tryRead = E.fold
+  val tryWrite = E.fold
+
+  fun getRelToBase (rb, m) n = rb+n
+  fun setRelBase (rb, m) n = (rb+n, m)
 
   fun nextIP n ip = ip + n
 
@@ -175,34 +202,16 @@ structure Memory : MEMORY = struct
   val mult = op *
 end
 
-structure Utils = struct
-  fun digits (i : int) : int list =
-  let
-    fun digits' i' acc =
-      case i' of
-            0 => acc
-          | i'' => digits' (i'' div 10) ((i'' mod 10)::acc)
-  in
-    digits' i []
-  end
-
-  val fromDigits = List.foldl (fn (d, i) => i*10 + d) 0
-
-  fun pad (n : int) (z : 'a) (xs : 'a list) : 'a list =
-    let val length = length xs
-    in
-      if length >= n then xs
-      else (List.tabulate (n - length,(fn i => z))) @ xs
-    end
-end
-
 functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   type opcode = Memory.elem
   type elem = Memory.elem
   type memory = Memory.memory
   type addr = Memory.addr
 
-  datatype mode = POS | IMM | UNKNOWN
+  datatype mode = POS
+                | IMM
+                | REL
+                | UNKNOWN
   type param = addr * mode * (unit -> (addr, elem) Either.either)
   type dest = addr * mode * (elem -> (addr * elem, memory) Either.either)
 
@@ -250,6 +259,7 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
                 | JMP_F of jmp
                 | TST_LT of tst
                 | TST_EQ of tst
+                | SET_BASE of unaryR
                 | HALT
                 | UNKNOWN_OP of opcode
                 | UNKNOWN_MODE of opcode
@@ -259,12 +269,13 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
   val ate = Memory.addrToElem
   val tryRead = Memory.tryRead MEM_ERR
 
-  fun createParam a m mem : param=
+  fun createParam a m mem : param =
     (a
     ,m
     ,case m of
           POS => (fn () => Memory.read mem a)
         | IMM => (fn () => Either.R (Memory.addrToElem a))
+        | REL => (fn () => Memory.read mem (Memory.getRelToBase mem a))
         | UNKNOWN => (fn () => Either.L a))
 
   fun createDest (a : addr) m mem : dest =
@@ -283,6 +294,7 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
         (*                     (fn e' => Either.L (e', e)) *)
         (*                     (fn a' => Memory.write mem (eta a') e) *)
         (*                     (Memory.read mem a)) *)
+        | REL => Memory.write mem (Memory.getRelToBase mem a)
         | UNKNOWN => (fn e => Either.L (a, e)))
 
   fun createUnaryR
@@ -374,6 +386,7 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
     case i of
          0 => POS
        | 1 => IMM
+       | 2 => REL
        | _ => UNKNOWN
 
   fun opToInst (code : opcode) : opcode * mode list =
@@ -402,6 +415,7 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
              | 6 => createJmp (fn i => i = 0) JMP_F m ip modes
              | 7 => createTst (fn i => fn j => i < j) TST_LT m ip modes
              | 8 => createTst (fn i => fn j => i = j) TST_EQ m ip modes
+             | 9 => createUnaryR SET_BASE m ip modes
              | 99 => HALT
              (* or should this throw? *)
              | u => UNKNOWN_OP u) opc
@@ -416,10 +430,10 @@ functor CPUFn (structure Memory : MEMORY
   type instream = unit -> elem
   type outstream = elem -> unit
   datatype state = RUNNING
-                  | MEM_R_ERR of Memory.addr
-                  | MEM_W_ERR of Memory.addr * Memory.elem
-                  | UNKNOWN_ERR of Memory.addr * Decoder.opcode
-                  | FINISHED
+                 | MEM_R_ERR of Memory.addr
+                 | MEM_W_ERR of Memory.addr * Memory.elem
+                 | UNKNOWN_ERR of Memory.addr * Decoder.opcode
+                 | FINISHED
   val init = Memory.base
   type program = Memory.memory
   type process = state * Memory.memory * Memory.addr
@@ -444,13 +458,13 @@ functor CPUFn (structure Memory : MEMORY
       : process =
       let val {srcA, srcB, dest, newIp} = Decoder.ternaryToRec t
       in
-      tryRead (fn a => fn (m', a') =>
-      tryRead (fn b => fn (m'', a'') =>
-      tryWrite (fn w => fn _ =>
-        (RUNNING, w, newIp))
-      ((#3 dest) (f (a,b))) (m'', a''))
-      ((#3 srcB)()) (m', a'))
-      ((#3 srcA)()) (m, ip)
+        tryRead (fn a => fn (m', a') =>
+        tryRead (fn b => fn (m'', a'') =>
+        tryWrite (fn w => fn _ =>
+          (RUNNING, w, newIp))
+        ((#3 dest) (f (a,b))) (m'', a''))
+        ((#3 srcB)()) (m', a'))
+        ((#3 srcA)()) (m, ip)
       end
 
     val add = arithOp Memory.add
@@ -486,7 +500,7 @@ functor CPUFn (structure Memory : MEMORY
       in
         tryRead (fn e => fn _ =>
           if cmp e
-          then tryRead (fn d => fn (m', a') => (RUNNING, m, (Memory.elemToAddr d)))
+          then tryRead (fn d => fn (m', a') => (RUNNING, m, (eta d)))
                        ((#3 jmpIp)()) (m, ip)
           else (RUNNING, m, defIp))
         ((#3 tst)()) (m, ip)
@@ -506,6 +520,16 @@ functor CPUFn (structure Memory : MEMORY
         ((#3 tstB)()) (m', a'))
         ((#3 tstA)()) (m, ip)
       end
+    fun setBase
+      (m : Memory.memory)
+      (ip : Memory.addr)
+      (u : Decoder.unaryR)
+      : process =
+      let val {addr, newIp} = Decoder.unaryRToRec u
+      in
+        tryRead (fn rb => fn (m', a') => (RUNNING, Memory.setRelBase m' (eta rb), newIp))
+        ((#3 addr)()) (m, ip)
+      end
   end
 
   fun step ins outs proc = case proc of
@@ -519,6 +543,7 @@ functor CPUFn (structure Memory : MEMORY
          | Decoder.JMP_F a => Eval.jmp m ip a
          | Decoder.TST_LT a => Eval.tst m ip a
          | Decoder.TST_EQ a => Eval.tst m ip a
+         | Decoder.SET_BASE a => Eval.setBase m ip a
          | Decoder.HALT => (FINISHED, m, ip)
          | Decoder.UNKNOWN_OP u => (UNKNOWN_ERR (ip, u), m, ip)
          | Decoder.UNKNOWN_MODE c => (UNKNOWN_ERR (ip, c), m, ip)
@@ -584,13 +609,13 @@ struct
 end
 
 structure Reader = struct
-  val read : string -> Intcode.program =
+  fun read s : Intcode.program =
   let
     val collect = List.mapPartial Int.fromString
     fun sep c = Char.isSpace c orelse c = #","
     val tokenize = String.tokens sep
   in
-    collect o tokenize
+    (Memory.base, (collect o tokenize) s)
   end
   val readFromStream : TextIO.instream -> Intcode.program =
     read o TextIO.inputAll
@@ -600,7 +625,7 @@ end
 
 (* useful interactively *)
 structure I = struct
-  val interpret = Intcode.interpret o Reader.read
+  fun interpret s = Intcode.interpret (Reader.read s) StdIO.reader StdIO.writer
 end
 
 structure Solution = struct
