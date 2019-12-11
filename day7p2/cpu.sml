@@ -1,30 +1,31 @@
 signature CPU = sig
   type elem
-  type instream
-  type outstream
   type program
   type process
   type result
   val load : program -> process
-  val run : process -> instream -> outstream -> result
+  val run : process -> result
   (* usually run o load *)
-  val interpret : program -> instream -> outstream -> result
+  val interpret : program -> result
 end
 
 functor CPUFn (structure Memory : MEMORY
                structure Decoder : DECODER sharing Decoder = Memory)
                : CPU = struct
   type elem = Memory.elem
-  type instream = unit -> elem
-  type outstream = elem -> unit
+
   datatype state = RUNNING
                  | MEM_R_ERR of Memory.addr
                  | MEM_W_ERR of Memory.addr * Memory.elem
                  | UNKNOWN_ERR of Memory.addr * Decoder.opcode
                  | FINISHED
+                 | IN of elem -> process
+                 | OUT of elem
+  (* mutual recursion means process *has* to be a datatype. boo. *)
+  and process = P of state * Memory.memory * Memory.addr
+
   val init = Memory.base
   type program = Memory.memory
-  type process = state * Memory.memory * Memory.addr
   type result = state * Memory.memory * Memory.addr
 
   val eta = Memory.elemToAddr
@@ -34,10 +35,10 @@ functor CPUFn (structure Memory : MEMORY
   structure Eval = struct
     val tryRead =
       Memory.tryRead (fn e => fn (m, a) =>
-      (MEM_R_ERR e, m, a) : process)
+      P (MEM_R_ERR e, m, a))
     val tryWrite =
       Memory.tryWrite (fn e => fn (m, a) =>
-      (MEM_W_ERR e, m, a) : process)
+      P (MEM_W_ERR e, m, a))
     fun arithOp
       (f : Memory.elem * Memory.elem -> Memory.elem)
       (m : Memory.memory)
@@ -49,7 +50,7 @@ functor CPUFn (structure Memory : MEMORY
         tryRead (fn a => fn (m', a') =>
         tryRead (fn b => fn (m'', a'') =>
         tryWrite (fn w => fn _ =>
-          (RUNNING, w, newIp))
+          P (RUNNING, w, newIp))
         ((#3 dest) (f (a,b))) (m'', a''))
         ((#3 srcB)()) (m', a'))
         ((#3 srcA)()) (m, ip)
@@ -58,26 +59,25 @@ functor CPUFn (structure Memory : MEMORY
     val add = arithOp Memory.add
     val mult = arithOp Memory.mult
     fun input
-      (ins : instream)
       (m : Memory.memory)
       (ip : Memory.addr)
       (u : Decoder.unaryW)
       : process =
       let val {addr, newIp} = Decoder.unaryWToRec u
       in
-      tryWrite (fn w => fn _ => (RUNNING, w, newIp))
-               ((#3 addr) (ins())) (m, ip)
+        P (IN (fn e => tryWrite (fn w => fn _ => P (RUNNING, w, newIp))
+                                ((#3 addr) e) (m, ip)),
+           m, ip)
       end
     fun output
-      (outs : outstream)
       (m : Memory.memory)
       (ip : Memory.addr)
       (u : Decoder.unaryR)
       : process =
       let val {addr, newIp} = Decoder.unaryRToRec u
       in
-      tryRead (fn e => fn _ => (outs e ; (RUNNING, m, newIp)))
-              ((#3 addr)()) (m, ip)
+        tryRead (fn e => fn _ => P (OUT e, m, ip))
+                ((#3 addr)()) (m, ip)
       end
     fun jmp
       (m : Memory.memory)
@@ -88,9 +88,9 @@ functor CPUFn (structure Memory : MEMORY
       in
         tryRead (fn e => fn _ =>
           if cmp e
-          then tryRead (fn d => fn (m', a') => (RUNNING, m, (eta d)))
+          then tryRead (fn d => fn (m', a') => P (RUNNING, m, (eta d)))
                        ((#3 jmpIp)()) (m, ip)
-          else (RUNNING, m, defIp))
+          else P (RUNNING, m, defIp))
         ((#3 tst)()) (m, ip)
       end
     fun tst
@@ -103,7 +103,7 @@ functor CPUFn (structure Memory : MEMORY
         tryRead (fn a => fn (m', a') =>
         tryRead (fn b => fn (m'', a'') =>
         tryWrite (fn w => fn _ =>
-          (RUNNING, w, newIp))
+          P (RUNNING, w, newIp))
         ((#3 res)(if cmp a b then ifT else ifF)) (m'', a''))
         ((#3 tstB)()) (m', a'))
         ((#3 tstA)()) (m, ip)
@@ -115,34 +115,35 @@ functor CPUFn (structure Memory : MEMORY
       : process =
       let val {addr, newIp} = Decoder.unaryRToRec u
       in
-        tryRead (fn rb => fn (m', a') => (RUNNING, Memory.setRelBase m' (eta rb), newIp))
-        ((#3 addr)()) (m, ip)
+        tryRead (fn rb => fn (m', a') =>
+                  P (RUNNING, Memory.setRelBase m' (eta rb), newIp))
+                  ((#3 addr)()) (m, ip)
       end
   end
 
-  fun step ins outs proc = case proc of
-    (RUNNING, m, ip) => (
-      case Decoder.decode m ip of
-           Decoder.ADD a => Eval.add m ip a
-         | Decoder.MULT a => Eval.mult m ip a
-         | Decoder.INPUT a => Eval.input ins m ip a
-         | Decoder.OUTPUT a => Eval.output outs m ip a
-         | Decoder.JMP_T a => Eval.jmp m ip a
-         | Decoder.JMP_F a => Eval.jmp m ip a
-         | Decoder.TST_LT a => Eval.tst m ip a
-         | Decoder.TST_EQ a => Eval.tst m ip a
-         | Decoder.SET_BASE a => Eval.setBase m ip a
-         | Decoder.HALT => (FINISHED, m, ip)
-         | Decoder.UNKNOWN_OP u => (UNKNOWN_ERR (ip, u), m, ip)
-         | Decoder.UNKNOWN_MODE c => (UNKNOWN_ERR (ip, c), m, ip)
-         | Decoder.MEM_ERR e => (MEM_R_ERR e, m, ip))
+  fun step proc : process = case proc of
+    P (RUNNING, m, ip) =>
+      (case Decoder.decode m ip of
+            Decoder.ADD a => Eval.add m ip a
+          | Decoder.MULT a => Eval.mult m ip a
+          | Decoder.INPUT a => Eval.input m ip a
+          | Decoder.OUTPUT a => Eval.output m ip a
+          | Decoder.JMP_T a => Eval.jmp m ip a
+          | Decoder.JMP_F a => Eval.jmp m ip a
+          | Decoder.TST_LT a => Eval.tst m ip a
+          | Decoder.TST_EQ a => Eval.tst m ip a
+          | Decoder.SET_BASE a => Eval.setBase m ip a
+          | Decoder.HALT => P (FINISHED, m, ip)
+          | Decoder.UNKNOWN_OP u => P (UNKNOWN_ERR (ip, u), m, ip)
+          | Decoder.UNKNOWN_MODE c => P (UNKNOWN_ERR (ip, c), m, ip)
+          | Decoder.MEM_ERR e => P (MEM_R_ERR e, m, ip))
     | p => p
     (* all other states (finished, errors) are fixed points *)
 
-  fun load p = (RUNNING, p, init)
-  fun run (s, m, ip) ins outs =
+  fun load p = P (RUNNING, p, init)
+  fun run (P (s, m, ip)) =
     case s of
-         RUNNING => run (step ins outs (s, m, ip)) ins outs
+         RUNNING => run (step (P (s, m, ip)))
        | _ => (s, m, ip)
   val interpret = run o load
 end

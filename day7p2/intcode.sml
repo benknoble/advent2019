@@ -19,5 +19,5 @@ end
 
 (* useful interactively *)
 structure I = struct
-  fun interpret s = Intcode.interpret (Reader.read s) StdIO.reader StdIO.writer
+  val interpret = Intcode.interpret o Reader.read
 end
