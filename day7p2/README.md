@@ -1,6 +1,6 @@
 Execute the SML solution with
 
 ```
-sml intcode.sml
+sml solution.cm
 - Solution.solve "input";
 ```

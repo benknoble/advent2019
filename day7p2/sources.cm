@@ -1,12 +1,10 @@
 Group
 is
-  amp.sml
   cpu.sml
   decoder.sml
   either.sml
   intcode.sml
   io.sml
   memory.sml
-  solution.sml
   utils.sml
   $/basis.cm

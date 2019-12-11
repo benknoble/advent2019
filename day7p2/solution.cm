@@ -1,0 +1,6 @@
+Group
+is
+  sources.cm
+  amp.sml
+  solution.sml
+  $/basis.cm
