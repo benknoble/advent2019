@@ -1,19 +1,4 @@
 Group
-  signature IO
-  signature MEMORY
-  structure Memory
-  signature DECODER
-  signature CPU
-  functor IntDecoderFn
-  functor CPUFn
-  structure Decoder
-  structure StdIO
-  structure Intcode
-  structure Amplifier
-  structure Reader
-  structure I
-  structure Solution
 is
   intcode.sml
   $/basis.cm
-  $cml/cml.cm
