@@ -5,22 +5,22 @@ signature MEMORY = sig
 
   val base : addr
 
-  val read : memory -> addr -> (addr, elem) Either.either
-  val write : memory -> addr -> elem -> (addr * elem, memory) Either.either
+  val read : memory -> addr -> (addr, elem) Either'.either
+  val write : memory -> addr -> elem -> (addr * elem, memory) Either'.either
   val tryRead : (addr -> 'a) -> (elem -> 'a)
-                -> ((addr, elem) Either.either -> 'a)
+                -> ((addr, elem) Either'.either -> 'a)
   val tryWrite : (addr * elem -> 'a) -> (memory -> 'a)
-                 -> ((addr * elem, memory) Either.either -> 'a)
+                 -> ((addr * elem, memory) Either'.either -> 'a)
 
   val getRelToBase : memory -> addr -> addr
   val setRelBase : memory -> addr -> memory
 
   val nextIP : int -> addr -> addr
 
-  val nextN : int -> addr -> memory -> (addr, elem) Either.either
-  val next : addr -> memory -> (addr, elem) Either.either
-  val next2 : addr -> memory -> (addr, elem) Either.either
-  val next3 : addr -> memory -> (addr, elem) Either.either
+  val nextN : int -> addr -> memory -> (addr, elem) Either'.either
+  val next : addr -> memory -> (addr, elem) Either'.either
+  val next2 : addr -> memory -> (addr, elem) Either'.either
+  val next3 : addr -> memory -> (addr, elem) Either'.either
 
   val elemToAddr : elem -> addr
   val addrToElem : addr -> elem
@@ -30,7 +30,7 @@ signature MEMORY = sig
 end
 
 structure Memory : MEMORY = struct
-  structure E = Either
+  structure E = Either'
   val L = E.L
   val R = E.R
 

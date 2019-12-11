@@ -1,5 +1,5 @@
 (* a right-biased either type, based on scala.util.Either *)
-structure Either = struct
+structure Either' = struct
   datatype ('a, 'b) either = L of 'a
                            | R of 'b
   fun fold (l : 'a -> 'c) (r : 'b -> 'c) (e : ('a, 'b) either) : 'c =

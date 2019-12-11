@@ -9,8 +9,8 @@ signature DECODER = sig
                 | REL
                 | UNKNOWN
 
-  type param = addr * mode * (unit -> (addr, elem) Either.either)
-  type dest = addr * mode * (elem -> (addr * elem, memory) Either.either)
+  type param = addr * mode * (unit -> (addr, elem) Either'.either)
+  type dest = addr * mode * (elem -> (addr * elem, memory) Either'.either)
 
   type unaryR
   type unaryW
@@ -69,8 +69,8 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
                 | IMM
                 | REL
                 | UNKNOWN
-  type param = addr * mode * (unit -> (addr, elem) Either.either)
-  type dest = addr * mode * (elem -> (addr * elem, memory) Either.either)
+  type param = addr * mode * (unit -> (addr, elem) Either'.either)
+  type dest = addr * mode * (elem -> (addr * elem, memory) Either'.either)
 
   type unaryR = {
     addr : param
@@ -131,9 +131,9 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
     ,m
     ,case m of
           POS => (fn () => Memory.read mem a)
-        | IMM => (fn () => Either.R (Memory.addrToElem a))
+        | IMM => (fn () => Either'.R (Memory.addrToElem a))
         | REL => (fn () => Memory.read mem (Memory.getRelToBase mem a))
-        | UNKNOWN => (fn () => Either.L a))
+        | UNKNOWN => (fn () => Either'.L a))
 
   fun createDest (a : addr) m mem : dest =
     (a
@@ -148,11 +148,11 @@ functor IntDecoderFn (Memory : MEMORY where type elem = int) : DECODER = struct
         * argument
         *)
         (* | IMM => (fn e => Memory.tryRead *)
-        (*                     (fn e' => Either.L (e', e)) *)
+        (*                     (fn e' => Either'.L (e', e)) *)
         (*                     (fn a' => Memory.write mem (eta a') e) *)
         (*                     (Memory.read mem a)) *)
         | REL => Memory.write mem (Memory.getRelToBase mem a)
-        | UNKNOWN => (fn e => Either.L (a, e)))
+        | UNKNOWN => (fn e => Either'.L (a, e)))
 
   fun createUnaryR
     (f : unaryR -> inst)
