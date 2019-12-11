@@ -5,7 +5,7 @@ signature CPU = sig
   type process
   type result
   val appIn : state -> elem -> process
-  val getOut : state -> elem
+  val getOut : state -> elem * process
   val load : program -> process
   val run : process -> result
   (* usually run o load *)
@@ -23,7 +23,7 @@ functor CPUFn (structure Memory : MEMORY
                  | UNKNOWN_ERR of Memory.addr * Decoder.opcode
                  | FINISHED
                  | IN of elem -> process
-                 | OUT of elem
+                 | OUT of elem * process
   (* mutual recursion means process *has* to be a datatype. boo. *)
   and process = P of state * Memory.memory * Memory.addr
 
@@ -79,7 +79,7 @@ functor CPUFn (structure Memory : MEMORY
       : process =
       let val {addr, newIp} = Decoder.unaryRToRec u
       in
-        tryRead (fn e => fn _ => P (OUT e, m, ip))
+        tryRead (fn e => fn _ => P (OUT (e, P (RUNNING, m, newIp)), m, newIp))
                 ((#3 addr)()) (m, ip)
       end
     fun jmp
@@ -150,7 +150,7 @@ functor CPUFn (structure Memory : MEMORY
        | _ => raise NotIN
 
   exception NotOUT
-  fun getOut (s : state) : elem =
+  fun getOut (s : state) : elem * process =
     case s of
          OUT e => e
        | _ => raise NotOUT
