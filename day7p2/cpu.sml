@@ -1,8 +1,11 @@
 signature CPU = sig
   type elem
   type program
+  type state
   type process
   type result
+  val appIn : state -> elem -> process
+  val getOut : state -> elem
   val load : program -> process
   val run : process -> result
   (* usually run o load *)
@@ -139,6 +142,18 @@ functor CPUFn (structure Memory : MEMORY
           | Decoder.MEM_ERR e => P (MEM_R_ERR e, m, ip))
     | p => p
     (* all other states (finished, errors) are fixed points *)
+
+  exception NotIN
+  fun appIn (s : state) (e : elem) : process =
+    case s of
+         IN f => f e
+       | _ => raise NotIN
+
+  exception NotOUT
+  fun getOut (s : state) : elem =
+    case s of
+         OUT e => e
+       | _ => raise NotOUT
 
   fun load p = P (RUNNING, p, init)
   fun run (P (s, m, ip)) =
