@@ -4,6 +4,7 @@ structure Solution = struct
       val map = AsteroidMap.read s
       val station = (#1 o valOf o AsteroidMap.idealMonitorLoc) map
     in
-      AsteroidMap.nthDestroyed 200 map station
+      Point.map (fn (x,y) => 100*x + y)
+      (AsteroidMap.nthDestroyed 200 map station)
     end
 end

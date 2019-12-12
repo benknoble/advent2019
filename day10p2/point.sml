@@ -46,6 +46,11 @@ structure Point = struct
     in {x=x', y=y'}
     end
 
+  fun slope (p1 : point) (p2 : point) : real =
+    let val (dx, dy) = map2 (op -) (op -) p1 p2
+    in real dy / real dx
+    end
+
   fun onSameSlopeToOrigin (p1 : point) (p2 : point) : bool =
     map (fn (x1, y1) =>
     map (fn (x2, y2) =>
@@ -66,6 +71,24 @@ structure Point = struct
                          | (~1,~1) => III
                          | (0,~1) => YN
                          | (1,~1) => IV)
+
+  (* starting from ^, is q1 > q2? *)
+  fun clockwiseFromYP (q1,q2) =
+    let
+      fun notIn (x : quad) xs = List.all (fn x' => x' <> x) xs
+      val notIn' = notIn q2
+    in
+      case q1 of
+           O => false
+         | YP => false
+         | I => notIn' [YP]
+         | XP => notIn' [I, YP]
+         | IV => notIn' [XP, I, YP]
+         | YN => notIn' [IV, XP, I, YP]
+         | III => notIn' [YN, IV, XP, I, YP]
+         | XN => notIn' [III, YN, IV, XP, I, YP]
+         | II => true
+    end
 
   fun inSameQuadrant (p1 : point) (p2 : point) : bool =
     quadOf p1 = quadOf p2
