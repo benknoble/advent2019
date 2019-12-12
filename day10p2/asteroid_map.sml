@@ -7,17 +7,24 @@ structure AsteroidMap = struct
     P.onSameSlopeToOrigin p1 p2 andalso
     P.inSameQuadrant p1 p2
 
+  fun groupBySeen (map : map) (station : P.point) : P.point list list =
+    let
+      fun moveRel p ps = List.map (P.move p) ps
+      fun toDir p = P.map (fn (x,y) => P.new (~x) (~y)) p
+      fun seen p =
+        let val notP = List.filter (fn p' => p'<>p) map
+            val relP = moveRel (toDir p) notP
+        in Eq.classes rel relP
+        end
+    in
+      seen station
+    end
+
   fun idealMonitorLoc (map : map) : (P.point * int) option =
     if null map then NONE
     else
       let
-        fun moveRel p ps = List.map (P.move p) ps
-        fun toDir p = P.map (fn (x,y) => P.new (~x) (~y)) p
-        fun numberSeen p =
-          let val notP = List.filter (fn p' => p'<>p) map
-              val relP = moveRel (toDir p) notP
-          in length (Eq.classes rel relP)
-          end
+        fun numberSeen p = length (groupBySeen map p)
         val seenEach = List.map (fn p => (p, numberSeen p)) map
       in
         SOME (foldl (fn ((p,s),(p',m)) => if s > m then (p,s) else (p',m))
