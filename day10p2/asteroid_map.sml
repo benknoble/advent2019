@@ -31,49 +31,53 @@ structure AsteroidMap = struct
               (hd seenEach) seenEach)
       end
 
-  fun nthDestroyed (n : int) (map : map) (station : P.point)
-    (* : P.point *)
-    =
+  fun laserOrder (map : map) (station : P.point) : P.point list =
     let
-      (* val woStation = List.filter (fn p => p<>station) map *)
-      (* val moved = List.map *)
-      (*             (P.move (P.map (fn (x,y) => Point.new (~x) (~y)) station)) *)
-      (*             woStation *)
-      (* fun sweep n ps = *)
-      (*   let val visible = length (Eq.classes rel ps) *)
-      (*   in if visible < n then sweep (n - visible) (List.drop (ps,visible)) *)
-      (*      else (n, ps) *)
-      (*   end *)
-      (* val (n', rest) = sweep n moved *)
-      (* val tagged = List.map (fn p => (p, P.quadOf p, P.slope P.origin p)) rest *)
-      (* val sorted = ListMergeSort.sort *)
-      (*              (fn ((_, q1, d1), (_, q2, d2)) => *)
-      (*              if q1 = q2 then d1 > d2 *)
-      (*              else P.clockwiseFromYP (q1, q2)) *)
-      (*              tagged *)
-      (* ==================================================================== *)
-      (* val closest' = ListMergeSort.sort *)
-      (*                (fn (p1, p2) => P.manhattan p1 station > P.manhattan p2 station) *)
-      (*                map *)
-      (* val closest = List.filter (fn p => p <> station) closest' *)
-      (* val wAngle = List.map *)
-      (*              (fn p => (p, P.map (fn (x,y) => P.map (fn (x0, y0) => *)
-      (*                Math.atan2 (real (y-y0), real (x-x0))) station) p)) *)
-      (*              closest *)
-      (* val sortedAngle = ListMergeSort.sort *)
-      (*                   (fn (p1, p2) => #2 p1 > #2 p2) *)
-      (*                   wAngle *)
-      (* val byAngle' = Eq.classes *)
-      (*                (fn p1 => fn p2 => Real.== (#2 p1, #2 p2)) *)
-      (*                sortedAngle *)
-      (* val byAngle = List.rev (List.map List.rev byAngle') *)
-      (* val points = List.map (List.map #1) byAngle *)
-      (* fun lase ([] : P.point list list) = [] *)
-      (*   | lase (h::t) = List.map hd (h::t) @ lase t *)
-      (* val lased = lase points *)
+      val groups = groupBySeen map station
+      val byAngle = ListMergeSort.sort (fn (g1, g2) =>
+                    let
+                      val (h1, h2) = (hd g1, hd g2)
+                      (* Because of coordinate system, and because laser points,
+                       * up, we transform (x,y) |-> (y,-x)
+                       *
+                       * This has the effect of making the angles sort
+                       * correctly, starting from 0, if we consider (-y) to be 0
+                       * in the original coordinate system--for the laser points
+                       * up on the grid, which is in the (-y) direction relative
+                       * to the station! It also sweeps clockwise...
+                       *
+                       * The only adjustment to make is that atan2 sends the
+                       * negative-y-axis to π, which is "largest," while I need
+                       * it to go to (-π), or "smallest." We handle this case
+                       * specially.
+                       *)
+                      val flipped = P.map (fn (x,y) => P.new y (~x))
+                      val (h1', h2') = (flipped h1, flipped h2)
+                      val toA = P.map (fn (x,y) => Math.atan2 (real y, real x))
+                      val (a1, a2) = (toA h1', toA h2')
+                      val onYN = P.map (fn (x,y) => x = 0 andalso y < 0)
+                    in
+                      if onYN h1 then false
+                      else onYN h2 orelse a1 > a2
+                    end) groups
+      val byDist = List.map (fn g =>
+                   ListMergeSort.sort (fn (p1, p2) =>
+                   (* dist to origin here, since that's where station is located
+                    *
+                    * manhattan is good enough: they are all on the same angle,
+                    * so we cannot have (x,y) and (y,x) in the same group
+                    *)
+                   P.manhattan p1 P.origin > P.manhattan p2 P.origin)
+                   g)
+                   byAngle
+      fun lase ([] : P.point list list) = []
+        | lase ls = List.map hd ls @ lase (List.filter (not o null) (List.map tl ls))
     in
-      (* List.nth (lased, n-1) *)
+      List.map (P.move station) (lase byDist)
     end
+
+  fun nthDestroyed (n : int) (map : map) (station : P.point) : P.point =
+      List.nth (laserOrder map station, n-1)
 
   fun fromString s : map =
     let
