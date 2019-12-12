@@ -54,11 +54,19 @@ structure Point = struct
     p2)
     p1
 
+  datatype quad = I | II | III | IV | XP | XN | YP | YN | O
+  val quadOf : point -> quad =
+    map (fn (x, y) => case (Int.sign x, Int.sign y) of
+                           (0,0) => O
+                         | (1,0) => XP
+                         | (1,1) => I
+                         | (0,1) => YP
+                         | (~1,1) => II
+                         | (~1,0) => XN
+                         | (~1,~1) => III
+                         | (0,~1) => YN
+                         | (1,~1) => IV)
+
   fun inSameQuadrant (p1 : point) (p2 : point) : bool =
-    map (fn (x1, y1) =>
-    map (fn (x2, y2) =>
-      Int.sign x1 = Int.sign x2 andalso
-      Int.sign y1 = Int.sign y2)
-    p2)
-    p1
+    quadOf p1 = quadOf p2
 end
