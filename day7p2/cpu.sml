@@ -10,6 +10,7 @@ signature CPU = sig
   val run : process -> result
   (* usually run o load *)
   val interpret : program -> result
+  val stopped : result -> bool
 end
 
 functor CPUFn (structure Memory : MEMORY
@@ -161,4 +162,12 @@ functor CPUFn (structure Memory : MEMORY
          RUNNING => run (step (P (s, m, ip)))
        | _ => (s, m, ip)
   val interpret = run o load
+
+  fun stopped ((s,_,_) : result) : bool =
+    case s of
+         FINISHED => true
+       | MEM_R_ERR _ => true
+       | MEM_W_ERR _ => true
+       | UNKNOWN_ERR _ => true
+       | _ => false
 end
