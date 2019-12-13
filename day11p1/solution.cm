@@ -9,6 +9,7 @@ is
   utils.sml
 
   point.sml
+  robot.sml
 
   solution.sml
 
