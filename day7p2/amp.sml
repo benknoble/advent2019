@@ -1,34 +1,35 @@
-structure Amplifier =
-struct
-  fun mkReader phase reader =
+structure Amplifier = struct
+  fun loop
+    (init : int)
+    (p : Intcode.program)
+    (phases : int list)
+    : int =
     let
-      val hasReadPhase = ref false
+      (* all left at "input phase" stage *)
+      val amps = map (fn _ => Intcode.interpret p) phases
+      val zipped = ListPair.zip (amps, phases)
+      (* now, procs waiting to be run *)
+      val wPhases = map (fn ((s,_,_), p) => Intcode.appIn s p) zipped
+      (* used to sync io; could do it with a loop var, but eh *)
+      val storage = ref init
+      fun feedbackLoop procs =
+        let
+          val paused = map Intcode.run procs
+        in
+          if List.all Intcode.stopped paused
+          then !storage
+          else (* should be in input or output stage; if prog correct, input *)
+          feedbackLoop
+            (map (fn (s,_,_) =>
+            let
+              val toRun = Intcode.appIn s (!storage)
+              val (ran,_,_) = Intcode.run toRun
+              (* now it has produced output *)
+              val (out, next) = Intcode.getOut ran
+            in storage := out; next
+            end) paused)
+        end
     in
-      fn () =>
-        (* this bang is unfortunate; it means "value of", as opposed to "not" *)
-        if !hasReadPhase then reader()
-        else (hasReadPhase := true; phase)
+      feedbackLoop wPhases
     end
-
-  fun mkWriter (output : int ref) =
-    fn i => output := i
-
-  fun amplifierChain (init : unit -> int) (p : Intcode.program) (phases : int list) : int option =
-    case phases of
-        [] => NONE
-      | hed::tal =>
-      let
-        val result = ref 0
-        val start = mkReader hed init
-        val outputs = map (fn ph => ref 0) tal
-        val readers' = map (fn (out, t) => mkReader t (fn () => !out))
-                          (ListPair.zip (outputs, tal))
-        val readers = start::readers'
-        val writers = map mkWriter outputs @ [mkWriter result]
-        val amps = ListPair.zip (readers, writers)
-        val proc = Intcode.load p
-      in
-        map (fn (r, w) => Intcode.run proc r w) amps ;
-        SOME (!result)
-      end
 end
