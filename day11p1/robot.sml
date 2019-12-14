@@ -58,6 +58,9 @@ structure Robot = struct
   fun paint' (h : hull) (p : P.point) (i : int) : hull =
     paint h p (colorFromInt i)
 
+  fun paint'' (h : hull) (r : robot) (i : int) : hull =
+    paint' h (#1 r) i
+
   fun step (r : robot) (i : int) : robot =
     let
       val dir' = rotate (#2 r) i
@@ -73,7 +76,21 @@ structure Robot = struct
     colorToInt (read r h)
 
   fun run (r : robot) (h : hull) (p : Intcode.process) : hull =
-    (* TODO *)
-    newHull
-
+    let val ran = Intcode.run p
+    in if Intcode.stopped ran then h
+       else
+         let
+           val (inReq,_,_) = ran
+           val col = getOutput r h
+           val p' = Intcode.appIn inReq col
+           val (out,_,_) = Intcode.run p'
+           val (newCol, p'') = Intcode.getOut out
+           val h' = paint'' h r newCol
+           val (out',_,_) = Intcode.run p''
+           val (newDir, p''') = Intcode.getOut out'
+           val r' = step r newDir
+         in
+           run r' h' p'''
+         end
+    end
 end
