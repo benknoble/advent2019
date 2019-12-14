@@ -40,6 +40,17 @@ structure Moon = struct
     + (abs (#z' v))
 
   fun tot (m : moon) : int = pot m * kin m
+
+  fun fromString s =
+    let
+      val toks = String.tokens (fn c => c = #",") s
+      val toks' = map (String.tokens (fn c => c = #"=")) toks
+      val toks'' = map (map (String.tokens (fn c => c = #"<" orelse c = #">"))) toks'
+      val ints = map (map (List.mapPartial Int.fromString)) toks''
+      val [x, y, z] = (List.concat o List.concat) ints
+    in
+      new x y z
+    end
 end
 
 structure NBody = struct
@@ -66,4 +77,9 @@ structure NBody = struct
   fun tot (moons : moons) : int =
     foldl (op +) 0
     (map M.tot moons)
+
+  fun fromString s =
+    let val lines = String.tokens (fn c => c = #"\n") s
+    in map M.fromString lines
+    end
 end
