@@ -9,7 +9,7 @@ is
   utils.sml
 
   point.sml
-  robot.sml
+  arcade.sml
 
   solution.sml
 
