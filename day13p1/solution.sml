@@ -1,12 +1,12 @@
 structure Solution = struct
   fun solution prog =
     let
-      val robot = Robot.newRobot
-      val hull = Robot.newHull
-      val proc = Intcode.load prog
+      val screen = Arcade.newScreen
+      val screenFinal = Arcade.run screen (Intcode.load prog)
+      val blocks = Arcade.PointMap.filter (fn x => x = Arcade.BLOCK)
     in
-      Robot.hullToString (Robot.run robot hull proc)
+      Arcade.PointMap.numItems (blocks screenFinal)
     end
 
-  val solve = print o solution o Reader.readFromFile
+  val solve = solution o Reader.readFromFile
 end
