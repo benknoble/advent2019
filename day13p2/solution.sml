@@ -1,13 +1,19 @@
 structure Solution = struct
-  fun solution prog =
+  fun solution joy prog =
     let
       val screen = Arcade.newScreen
       val qtrs = Arcade.insertQtrs prog 2
       val proc = Intcode.load qtrs
-      val screenFinal = Arcade.run Arcade.joystickStdIO screen proc
+      val screenFinal = Arcade.run joy screen proc
     in
       Arcade.score screenFinal
     end
 
-  val solve = solution o Reader.readFromFile
+  val manual = solution Arcade.joystickStdIO
+  val ai = solution Arcade.joystickCPU
+
+  val manualFile = manual o Reader.readFromFile
+  val aiFile = ai o Reader.readFromFile
+
+  val solve = aiFile
 end

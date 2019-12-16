@@ -92,6 +92,21 @@ structure Arcade = struct
         | #"r" => RIGHT
         | _ => NEUTRAL)
 
+  fun joystickCPU ((s,_) : screen) =
+    let
+      fun find typ = List.find (fn (_,t) => t = typ) (PointMap.listItemsi s)
+      val ball = #1 (valOf (find BALL))
+      val paddle = #1 (valOf (find PADDLE))
+    in
+      P.map (fn (bx,_) =>
+      P.map (fn (px,_) =>
+        if bx < px then LEFT
+        else if px < bx then RIGHT
+        else NEUTRAL)
+      paddle)
+      ball
+    end
+
   exception Borked of screen
   fun run (j : joystick) (s : screen) (p : Intcode.process) : screen =
     let val ran = Intcode.run p
