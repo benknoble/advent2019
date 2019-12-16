@@ -1,0 +1,17 @@
+Group
+is
+  cpu.sml
+  decoder.sml
+  either.sml
+  intcode.sml
+  io.sml
+  memory.sml
+  utils.sml
+
+  point.sml
+  arcade.sml
+
+  solution.sml
+
+  $/basis.cm
+  $/smlnj-lib.cm
