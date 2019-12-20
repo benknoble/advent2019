@@ -9,6 +9,7 @@ is
   utils.sml
 
   point.sml
+  tractor.sml
 
   solution.sml
 
