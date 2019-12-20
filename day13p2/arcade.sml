@@ -88,6 +88,8 @@ structure Arcade = struct
      case (hd o explode o TextIO.inputN) (TextIO.stdIn, 1) of
           #"L" => LEFT
         | #"l" => LEFT
+        | #"a" => LEFT
+        | #"d" => RIGHT
         | #"R" => RIGHT
         | #"r" => RIGHT
         | _ => NEUTRAL)
