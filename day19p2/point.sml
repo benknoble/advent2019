@@ -74,4 +74,11 @@ structure Point = struct
       new x y
     end
 
+  fun pointsInSquare (size : int) (topleft : point) : point list =
+    List.concat(
+      map (fn (x,y) =>
+        List.tabulate (size, fn x' =>
+        List.tabulate (size, fn y' =>
+          new (x + x') (y - (size-1) + y'))))
+        topleft)
 end
