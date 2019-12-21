@@ -59,5 +59,19 @@ structure Point = struct
     p2)
     p1
 
+  (*
+   * the cantor pairing function
+   * https://en.wikipedia.org/wiki/Pairing_function
+   *)
+  val pi : point -> int = map (fn (x, y) => ((x + y) * (x + y + 1)) div 2 + y)
+  fun pi' (n : int) : point =
+    let
+      val w = floor((Math.sqrt(real(8 * n + 1)) - 1.0) / 2.0)
+      val t = (w * w + w) div 2
+      val y = n - t
+      val x = w - y
+    in
+      new x y
+    end
 
 end
