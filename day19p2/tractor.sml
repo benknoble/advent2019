@@ -49,10 +49,9 @@ structure Tractor = struct
       fun findSquare' x y =
         let
           fun findColumn x =
-            (print ("x: " ^ (Int.toString x) ^ " y: " ^ (Int.toString y) ^ "\n");
             if isPulling (proc) (P.new x y)
             then x
-            else findColumn (x+1))
+            else findColumn (x+1)
           val x' = findColumn x
           val point = P.new x' y
         in if containsSquare size proc point
