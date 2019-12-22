@@ -3,11 +3,11 @@ structure Solution = struct
     let
       open SpringDroid
       val script = [
-      NOT(A,WJ),
-      NOT(B,WT),
-      OR(RT,WJ),
-      NOT(C,WT),
-      OR(RT,WJ),
+      NOT(H,WT),
+      OR(C,WT),
+      AND(B,WT),
+      AND(A,WT),
+      NOT(RT,WJ),
       AND(D,WJ)
                    ]
     in
