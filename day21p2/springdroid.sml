@@ -3,6 +3,11 @@ structure SpringDroid = struct
                     | B
                     | C
                     | D
+                    | E
+                    | F
+                    | G
+                    | H
+                    | I
                     | RJ
                     | RT
   datatype writable = WJ
@@ -20,6 +25,11 @@ structure SpringDroid = struct
          | B => #"B"
          | C => #"C"
          | D => #"D"
+         | E => #"E"
+         | F => #"F"
+         | G => #"G"
+         | H => #"H"
+         | I => #"I"
          | RJ => #"J"
          | RT => #"T"),
      #" ",
@@ -38,7 +48,7 @@ structure SpringDroid = struct
   val encodeScript : script -> int list =
     let val app = fn a => fn b => b @ a
     in
-      (app (map Char.ord (explode "WALK\n")))
+      (app (map Char.ord (explode "RUN\n")))
       o List.concat
       o (map (fn i => (encodeInst i) @ [Char.ord #"\n"]))
     end
