@@ -1,0 +1,2 @@
+structure SpringDroid = struct
+end
