@@ -48,18 +48,18 @@ structure SpringDroid = struct
   fun run (proc : Intcode.process) (s : script) : int option =
     let
       val enc = encodeScript s
-      fun printPrompt p =
+      fun printOut p =
         let
           val ran = Intcode.run p
         in
           if not (Intcode.isOut ran) then ran
           else
             let
-              val (outPrompt, _, _) = ran
-              val (prompt, cont) = Intcode.getOut outPrompt
-              val _ = printAscii prompt
+              val (out, _, _) = ran
+              val (outC, cont) = Intcode.getOut out
+              val _ = printAscii outC
             in
-              printPrompt cont
+              printOut cont
             end
         end
       fun inputScript (p : Intcode.result) s =
@@ -69,9 +69,13 @@ structure SpringDroid = struct
           Intcode.appIn (#1 (Intcode.run p)) i))
         (Intcode.appIn (#1 p) (printAscii (hd s); hd s))
         (tl s)
-      val wPrompted = printPrompt proc
+      val wPrompted = printOut proc
       val wInput = inputScript wPrompted enc
+      val (out, _, _) = Intcode.run wInput
+      val (ans, cont) = Intcode.getOut out
     in
-      NONE
+      if ans > 255
+      then SOME ans
+      else (printAscii ans; printOut cont; NONE)
     end
 end
