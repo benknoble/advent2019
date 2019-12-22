@@ -71,11 +71,21 @@ structure SpringDroid = struct
         (tl s)
       val wPrompted = printOut proc
       val wInput = inputScript wPrompted enc
-      val (out, _, _) = Intcode.run wInput
-      val (ans, cont) = Intcode.getOut out
+      fun printUntilDone p =
+        let val ran = Intcode.run p
+        in
+          if not (Intcode.isOut ran) then NONE
+          else
+            let
+              val (out, _, _) = ran
+              val (outC, cont) = Intcode.getOut out
+            in
+              if outC > 255
+              then SOME outC
+              else (printAscii outC; printUntilDone cont)
+            end
+        end
     in
-      if ans > 255
-      then SOME ans
-      else (printAscii ans; printOut cont; NONE)
+      printUntilDone wInput
     end
 end
