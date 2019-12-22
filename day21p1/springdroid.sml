@@ -46,5 +46,32 @@ structure SpringDroid = struct
   val printAscii : int -> unit = print o String.str o Char.chr
 
   fun run (proc : Intcode.process) (s : script) : int option =
+    let
+      val enc = encodeScript s
+      fun printPrompt p =
+        let
+          val ran = Intcode.run p
+        in
+          if not (Intcode.isOut ran) then ran
+          else
+            let
+              val (outPrompt, _, _) = ran
+              val (prompt, cont) = Intcode.getOut outPrompt
+              val _ = printAscii prompt
+            in
+              printPrompt cont
+            end
+        end
+      fun inputScript (p : Intcode.result) s =
+        foldl
+        (fn (i, p) =>
+          (printAscii i;
+          Intcode.appIn (#1 (Intcode.run p)) i))
+        (Intcode.appIn (#1 p) (printAscii (hd s); hd s))
+        (tl s)
+      val wPrompted = printPrompt proc
+      val wInput = inputScript wPrompted enc
+    in
       NONE
+    end
 end
